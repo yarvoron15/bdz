@@ -14,3 +14,11 @@ add_subdirectory(min_divisor)
 add_subdirectory(fibonacci)
 add_subdirectory(varint)
 add_subdirectory(fp16)
+
+#2
+add_subdirectory(transpose_matrix)
+add_subdirectory(admission)
+add_subdirectory(scorer)
+add_subdirectory(sort_students)
+add_subdirectory(tests_checking)
+add_subdirectory(unixpath)
