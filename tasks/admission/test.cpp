@@ -4,24 +4,27 @@
 
 TEST_CASE("FillUniversities") {
     const std::vector<University> universities = {
-        {.name = "MSU", .max_students = 1}, {.name = "HSE", .max_students = 2}, {.name = "MIPT", .max_students = 100}};
+        {.name = "MSU", .maxStudents = 1},
+        {.name = "HSE", .maxStudents = 2},
+        {.name = "MIPT", .maxStudents = 100}
+    };
 
     const std::vector<Applicant> applicants = {
-        Applicant{.student = {.name = "Ivan Ivanov", .birth_date = {.day = 1, .month = 1, .year = 1900}},
+        Applicant{.student = {.name = "Ivan Ivanov", .birthDate = {.day = 1, .month = 1, .year = 1900}},
                   .points = 100,
-                  .wish_list = {"MSU", "HSE"}},
-        Applicant{.student = {.name = "Petr Petrov", .birth_date = {.day = 2, .month = 1, .year = 1900}},
+                  .wishList = {"MSU", "HSE"}},
+        Applicant{.student = {.name = "Petr Petrov", .birthDate = {.day = 2, .month = 1, .year = 1900}},
                   .points = 90,
-                  .wish_list = {"MSU", "HSE"}},
-        Applicant{.student = {.name = "Alexander Sidorov", .birth_date = {.day = 3, .month = 1, .year = 1900}},
+                  .wishList = {"MSU", "HSE"}},
+        Applicant{.student = {.name = "Alexander Sidorov", .birthDate = {.day = 3, .month = 1, .year = 1900}},
                   .points = 110,
-                  .wish_list = {"MIPT", "HSE"}},
-        Applicant{.student = {.name = "Ivan Petrov", .birth_date = {.day = 3, .month = 1, .year = 1900}},
+                  .wishList = {"MIPT", "HSE"}},
+        Applicant{.student = {.name = "Ivan Petrov", .birthDate = {.day = 3, .month = 1, .year = 1900}},
                   .points = 100,
-                  .wish_list = {"HSE", "MSU", "MIPT"}},
-        Applicant{.student = {.name = "Petr Ivanov", .birth_date = {.day = 4, .month = 1, .year = 1900}},
+                  .wishList = {"HSE", "MSU", "MIPT"}},
+        Applicant{.student = {.name = "Petr Ivanov", .birthDate = {.day = 4, .month = 1, .year = 1900}},
                   .points = 80,
-                  .wish_list = {"HSE"}}};
+                  .wishList = {"HSE"}}};
 
     const AdmissionTable expected = {{"HSE", {&applicants[3].student, &applicants[1].student}},
                                      {"MIPT", {&applicants[2].student}},
