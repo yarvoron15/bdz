@@ -16,6 +16,11 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+import json
+import re
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 # Logging helpers
 def info(msg: str):
@@ -87,6 +92,42 @@ def git_full_diff(root: Path) -> list:
 def git_ext_diff(root: Path, extensions: tuple) -> list:
     full_diff = git_full_diff(root)
     return [file for file in full_diff if file.endswith(extensions)]
+
+
+def git_repo_name(root: Path) -> str:
+    ci_name = os.getenv("CI_PROJECT_NAME")
+    if ci_name:
+        return ci_name
+    url = git_out("remote", "get-url", "origin", cwd=root).strip()
+    name = url.rstrip("/").split("/")[-1]
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name
+
+
+def extract_group_tag(repo_name: str) -> str:
+    match = re.match(r"(se\d+|staff)", repo_name)
+    if match:
+        return match.group(1)
+    return repo_name.split("-", 1)[0].split("_", 1)[0]
+
+
+# API helpers
+def api_json(method: str, url: str, token: str, payload: dict | None = None):
+    headers = {
+        "PRIVATE-TOKEN": token,
+        "Content-Type": "application/json",
+    }
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = Request(url, data=data, headers=headers, method=method)
+
+    try:
+        with urlopen(req, timeout=30) as resp:
+            body = resp.read()
+            return json.loads(body.decode("utf-8")) if body else None
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {e.code}: {body}") from e
 
 
 # Logical steps
@@ -162,16 +203,16 @@ def step_lint(root: Path):
 def step_build(task: str, root: Path):
     step("Step 3 - Build (CMake)")
     build_dir = root / "build"
-    if not (build_dir / "CMakeCache.txt").exists():
-        info(f"Configuring CMake in {build_dir}")
-        ok = run_logged(
-            ["cmake", "-S", str(root), "-B", str(build_dir),
-             "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
-            cwd=root,
-        )
-        if not ok:
-            fail("CMake configuration failed.")
-            sys.exit(3)
+
+    info(f"Configuring CMake in {build_dir}")
+    ok = run_logged(
+        ["cmake", "-S", str(root), "-B", str(build_dir),
+         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
+        cwd=root,
+    )
+    if not ok:
+        fail("CMake configuration failed.")
+        sys.exit(3)
 
     cmake_target = f"test_{task}"
     info(f"Building target: {cmake_target}")
@@ -230,42 +271,67 @@ def step_tests(task: str, root: Path):
         sys.exit(5)
 
 
-def step_submit(task: str, root: Path, args: argparse.Namespace):
+def step_submit(task: str, root: Path):
     step("Step 6 - Submit")
     target_branch = f"submits/{task}"
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    flags = " ".join(
-        f"--{k.replace('_', '-')}"
-        for k, v in vars(args).items()
-        if k != "task" and v is True
-    ) or "none"
-
-    description = (
-        f"Auto-submit: {task} | "
-        f"Date: {now_str} | "
-        f"Flags: {flags}"
-    )
-
     push_base = ["push", "-u", "origin", f"HEAD:refs/heads/{target_branch}"]
-
-    if git_remote_branch_exists(target_branch, root):
-        info(f"Branch '{target_branch}' already exists on remote. Updating without creating new MR.")
-        ok = git_logged(*push_base, cwd=root)
-    else:
-        ok = git_logged(
-            *push_base,
-            "-o", "merge_request.create",
-            "-o", "merge_request.target=main",
-            "-o", f"merge_request.title=Submit: {task}",
-            "-o", f"merge_request.description={description}",
-            cwd=root,
-        )
+    ok = git_logged(*push_base, cwd=root)
 
     if not ok:
         fail("git push failed.")
         sys.exit(6)
 
-    info("Done. Open GitLab to see the Merge Request.")
+    info("Done. Changes were pushed.")
+
+
+def step_ensure_mr(task: str, root: Path):
+    step("Creating merge request")
+
+    if os.getenv("CI_PIPELINE_SOURCE") != "push":
+        info("Not a push pipeline, skipping MR creation.")
+        return
+
+    branch = f"submits/{task}"
+    if os.getenv("CI_OPEN_MERGE_REQUESTS"):
+        info("Open MR already exists, skipping.")
+        return
+
+    token = os.getenv("GITLAB_TOKEN")
+    if not token:
+        fail("GITLAB_TOKEN is not set.")
+        sys.exit(7)
+
+    project_id = os.getenv("CI_PROJECT_ID")
+    api_v4 = os.getenv("CI_API_V4_URL")
+    default_branch = os.getenv("CI_DEFAULT_BRANCH", "main")
+    project_name = os.getenv("CI_PROJECT_NAME", root.name)
+
+    if not project_id or not api_v4:
+        fail("CI_PROJECT_ID or CI_API_V4_URL is not set.")
+        sys.exit(7)
+
+    group_tag = extract_group_tag(project_name)
+    params = urlencode({
+        "state": "opened",
+        "source_branch": branch,
+        "target_branch": default_branch,
+    })
+    list_url = f"{api_v4}/projects/{project_id}/merge_requests?{params}"
+
+    existing = api_json("GET", list_url, token)
+    if existing:
+        info(f"MR already exists: {existing[0]['web_url']}")
+        return
+
+    payload = {
+        "source_branch": branch,
+        "target_branch": default_branch,
+        "title": f"[{group_tag}] Submit: {task}",
+        "description": f"Auto-submit for task '{task}'.",
+        "remove_source_branch": False,
+    }
+    created = api_json("POST", f"{api_v4}/projects/{project_id}/merge_requests", token, payload)
+    info(f"MR created: {created['web_url']}")
 
 
 def main():
@@ -288,13 +354,22 @@ def main():
         action="store_true",
         help="Ignore uncommitted changes in task directory (not recommended)",
     )
+    parser.add_argument(
+        "--ensure-mr",
+        action="store_true",
+        help="CI only",
+    )
     args = parser.parse_args()
     task = args.task
     root = git_repo_root()
 
+    if args.ensure_mr:
+        step_ensure_mr(task, root)
+        sys.exit(0)
+
     print(f"HSE C++ Submitter | task: {task}")
     if args.no_send:
-        warn("--no-send: will run checks but skip push and MR creation")
+        warn("--no-send: will run checks but skip push")
 
     step_check_tools()
     step_branch(task, root, no_uncommitted=args.no_uncommitted)
@@ -303,11 +378,11 @@ def main():
     step_tidy(root)
     step_tests(task, root)
 
-    info(f"All local checks passed. Ready to submit.")
+    info(f"All local checks passed.")
     if args.no_send:
         sys.exit(0)
 
-    step_submit(task, root, args)
+    step_submit(task, root)
     print(f"Submission complete.")
 
 
