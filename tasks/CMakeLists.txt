@@ -28,3 +28,9 @@ add_subdirectory(search)
 add_subdirectory(provinces)
 add_subdirectory(vector_minmax)
 add_subdirectory(safe_arithmetic)
+
+# 4
+add_subdirectory(stack)
+add_subdirectory(rational)
+add_subdirectory(queue)
+add_subdirectory(lru_cache)

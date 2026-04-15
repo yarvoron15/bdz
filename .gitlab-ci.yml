@@ -7,8 +7,7 @@ variables:
 
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^submits\/.+$/ && $CI_OPEN_MERGE_REQUESTS == ""
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^submits\/.+$/
     - if: $CI_PIPELINE_SOURCE == "trigger"
     - when: never
 
@@ -54,3 +53,22 @@ grade:
 
     - python3 submit.py "${TASK}" --no-send
     - ccache -s || true
+
+  after_script:
+    - |
+      set -euo pipefail
+      echo "[+] after_script start"
+      echo "[+] source=${CI_PIPELINE_SOURCE:-} branch=${CI_COMMIT_REF_NAME:-}"
+      BRANCH="${CI_COMMIT_REF_NAME:-}"
+
+      if [[ "${BRANCH}" != submits/* ]]; then
+        echo "[+] Not a submits/* branch (${BRANCH}); nothing to do."
+        exit 0
+      fi
+
+      if [[ "${CI_PIPELINE_SOURCE}" == "push" && "${BRANCH}" == submits/* ]]; then
+        echo "[+] Ensuring MR for ${BRANCH}"
+        python3 -u submit.py "${BRANCH#submits/}" --ensure-mr || true
+      else
+        echo "[+] Skipping MR creation"
+      fi
