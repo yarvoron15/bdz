@@ -1,0 +1,74 @@
+stages:
+  - test
+
+variables:
+  GIT_DEPTH: "0"
+  CI_IMAGE: "ghcr.io/irval1337/hse-cxx-ci:ubuntu24-clang18-v1"
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^submits\/.+$/
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    - when: never
+
+grade:
+  stage: test
+  image:
+    name: "$CI_IMAGE"
+    pull_policy: if-not-present
+
+  variables:
+    CCACHE_DIR: "$CI_PROJECT_DIR/.ccache"
+
+  cache:
+    key: "${CI_PROJECT_ID}"
+    paths:
+      - build/
+      - .ccache/
+
+  before_script:
+    - |
+      set -euo pipefail
+      ccache --set-config=max_size=500M || true
+      ccache -z || true
+
+  script:
+    - set -euo pipefail
+    - |
+      BRANCH="${CI_COMMIT_REF_NAME:-}"
+      if [[ -n "${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-}" ]]; then
+        BRANCH="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}"
+      fi
+
+      if [[ "${BRANCH}" != submits/* ]]; then
+        echo "[+] Not a submits/* branch (${BRANCH}); nothing to do."
+        exit 0
+      fi
+
+      TASK="${BRANCH#submits/}"
+
+      BASE="${CI_DEFAULT_BRANCH:-main}"
+      git fetch --no-tags origin "${BASE}:${BASE}"
+      git checkout -B "${BRANCH}" "${CI_COMMIT_SHA}"
+
+    - python3 submit.py "${TASK}" --no-send
+    - ccache -s || true
+
+  after_script:
+    - |
+      set -euo pipefail
+      echo "[+] after_script start"
+      echo "[+] source=${CI_PIPELINE_SOURCE:-} branch=${CI_COMMIT_REF_NAME:-}"
+      BRANCH="${CI_COMMIT_REF_NAME:-}"
+
+      if [[ "${BRANCH}" != submits/* ]]; then
+        echo "[+] Not a submits/* branch (${BRANCH}); nothing to do."
+        exit 0
+      fi
+
+      if [[ "${CI_PIPELINE_SOURCE}" == "push" && "${BRANCH}" == submits/* ]]; then
+        echo "[+] Ensuring MR for ${BRANCH}"
+        python3 -u submit.py "${BRANCH#submits/}" --ensure-mr || true
+      else
+        echo "[+] Skipping MR creation"
+      fi
