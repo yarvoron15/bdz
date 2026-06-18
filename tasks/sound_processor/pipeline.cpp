@@ -1,10 +1,10 @@
 #include "pipeline.h"
 
-#include <stdexcept>
+#include "errors.h"
 
 void Pipeline::AddFilter(std::unique_ptr<IFilter> filter) {
     if (filter == nullptr) {
-        throw std::runtime_error("Cannot add null filter to pipeline.");
+        throw SoundProcessorError("Cannot add null filter to pipeline.");
     }
     filters_.push_back(std::move(filter));
 }

@@ -1,8 +1,9 @@
 #include "wav_io.h"
 
+#include "errors.h"
+
 #include <cstdint>
 #include <fstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -33,14 +34,56 @@ struct FmtBody {
     uint16_t bits_per_sample;
 };
 
-template <class T>
-T ReadStruct(std::istream& input) {
-    T value{};
-    input.read(reinterpret_cast<char*>(&value), sizeof(value));
+uint16_t ReadLe16(std::istream& input) {
+    unsigned char bytes[2] = {};
+    input.read(reinterpret_cast<char*>(bytes), 2);
     if (!input) {
-        throw std::runtime_error("Unexpected end of WAV file.");
+        throw WavFormatError("Unexpected end of WAV file.");
     }
-    return value;
+    return static_cast<uint16_t>(bytes[0]) | (static_cast<uint16_t>(bytes[1]) << 8U);
+}
+
+uint32_t ReadLe32(std::istream& input) {
+    unsigned char bytes[4] = {};
+    input.read(reinterpret_cast<char*>(bytes), 4);
+    if (!input) {
+        throw WavFormatError("Unexpected end of WAV file.");
+    }
+    return static_cast<uint32_t>(bytes[0]) | (static_cast<uint32_t>(bytes[1]) << 8U) |
+           (static_cast<uint32_t>(bytes[2]) << 16U) | (static_cast<uint32_t>(bytes[3]) << 24U);
+}
+
+void WriteLe16(std::ostream& output, uint16_t value) {
+    const unsigned char bytes[2] = {static_cast<unsigned char>(value & 0xFFU),
+                                    static_cast<unsigned char>((value >> 8U) & 0xFFU)};
+    output.write(reinterpret_cast<const char*>(bytes), 2);
+}
+
+void WriteLe32(std::ostream& output, uint32_t value) {
+    const unsigned char bytes[4] = {static_cast<unsigned char>(value & 0xFFU),
+                                    static_cast<unsigned char>((value >> 8U) & 0xFFU),
+                                    static_cast<unsigned char>((value >> 16U) & 0xFFU),
+                                    static_cast<unsigned char>((value >> 24U) & 0xFFU)};
+    output.write(reinterpret_cast<const char*>(bytes), 4);
+}
+
+RiffHeader ReadRiffHeader(std::istream& input) {
+    return {ReadLe32(input), ReadLe32(input), ReadLe32(input)};
+}
+
+ChunkHeader ReadChunkHeader(std::istream& input) {
+    return {ReadLe32(input), ReadLe32(input)};
+}
+
+FmtBody ReadFmtBody(std::istream& input) {
+    FmtBody fmt{};
+    fmt.audio_format = ReadLe16(input);
+    fmt.channels = ReadLe16(input);
+    fmt.sample_rate = ReadLe32(input);
+    fmt.byte_rate = ReadLe32(input);
+    fmt.block_align = ReadLe16(input);
+    fmt.bits_per_sample = ReadLe16(input);
+    return fmt;
 }
 
 }  // namespace
@@ -48,12 +91,12 @@ T ReadStruct(std::istream& input) {
 Waveform WavReader::Read(const std::string& path) const {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
-        throw std::runtime_error("Cannot open input WAV file: " + path);
+        throw WavFormatError("Cannot open input WAV file: " + path);
     }
 
-    const RiffHeader riff = ReadStruct<RiffHeader>(input);
+    const RiffHeader riff = ReadRiffHeader(input);
     if (riff.id != kRiff || riff.wave_id != kWave) {
-        throw std::runtime_error("Input file is not a RIFF/WAVE file.");
+        throw WavFormatError("Input file is not a RIFF/WAVE file.");
     }
 
     bool found_fmt = false;
@@ -66,24 +109,24 @@ Waveform WavReader::Read(const std::string& path) const {
             break;
         }
 
-        const ChunkHeader chunk = ReadStruct<ChunkHeader>(input);
+        const ChunkHeader chunk = ReadChunkHeader(input);
         if (chunk.id == kFmt) {
             if (chunk.size < sizeof(FmtBody)) {
-                throw std::runtime_error("Invalid fmt chunk.");
+                throw WavFormatError("Invalid fmt chunk.");
             }
-            fmt = ReadStruct<FmtBody>(input);
+            fmt = ReadFmtBody(input);
             if (chunk.size > sizeof(FmtBody)) {
                 input.seekg(chunk.size - sizeof(FmtBody), std::ios::cur);
             }
             found_fmt = true;
         } else if (chunk.id == kData) {
             if (chunk.size % sizeof(int16_t) != 0) {
-                throw std::runtime_error("Invalid data chunk size.");
+                throw WavFormatError("Invalid data chunk size.");
             }
             samples.resize(chunk.size / sizeof(int16_t));
             input.read(reinterpret_cast<char*>(samples.data()), static_cast<std::streamsize>(chunk.size));
             if (!input) {
-                throw std::runtime_error("Unexpected end of WAV data chunk.");
+                throw WavFormatError("Unexpected end of WAV data chunk.");
             }
             found_data = true;
         } else {
@@ -96,11 +139,11 @@ Waveform WavReader::Read(const std::string& path) const {
     }
 
     if (!found_fmt || !found_data) {
-        throw std::runtime_error("WAV file must contain fmt and data chunks.");
+        throw WavFormatError("WAV file must contain fmt and data chunks.");
     }
     if (fmt.audio_format != 1 || fmt.channels != 1 || fmt.sample_rate != Waveform::kSampleRate ||
         fmt.bits_per_sample != 16 || fmt.block_align != sizeof(int16_t)) {
-        throw std::runtime_error("Only mono PCM WAV 44.1kHz 16-bit files are supported.");
+        throw WavFormatError("Only mono PCM WAV 44.1kHz 16-bit files are supported.");
     }
 
     return Waveform(std::move(samples));
@@ -109,26 +152,28 @@ Waveform WavReader::Read(const std::string& path) const {
 void WavWriter::Write(const std::string& path, const Waveform& waveform) const {
     std::ofstream output(path, std::ios::binary);
     if (!output) {
-        throw std::runtime_error("Cannot open output WAV file: " + path);
+        throw WavFormatError("Cannot open output WAV file: " + path);
     }
 
     const uint32_t data_size = static_cast<uint32_t>(waveform.size() * sizeof(int16_t));
-    const RiffHeader riff{kRiff, 36U + data_size, kWave};
-    const ChunkHeader fmt_header{kFmt, 16U};
-    const FmtBody fmt_body{1, 1, static_cast<uint32_t>(Waveform::kSampleRate),
-                           static_cast<uint32_t>(Waveform::kSampleRate * sizeof(int16_t)),
-                           sizeof(int16_t), 16};
-    const ChunkHeader data_header{kData, data_size};
-
-    output.write(reinterpret_cast<const char*>(&riff), sizeof(riff));
-    output.write(reinterpret_cast<const char*>(&fmt_header), sizeof(fmt_header));
-    output.write(reinterpret_cast<const char*>(&fmt_body), sizeof(fmt_body));
-    output.write(reinterpret_cast<const char*>(&data_header), sizeof(data_header));
+    WriteLe32(output, kRiff);
+    WriteLe32(output, 36U + data_size);
+    WriteLe32(output, kWave);
+    WriteLe32(output, kFmt);
+    WriteLe32(output, 16U);
+    WriteLe16(output, 1U);
+    WriteLe16(output, 1U);
+    WriteLe32(output, static_cast<uint32_t>(Waveform::kSampleRate));
+    WriteLe32(output, static_cast<uint32_t>(Waveform::kSampleRate * sizeof(int16_t)));
+    WriteLe16(output, static_cast<uint16_t>(sizeof(int16_t)));
+    WriteLe16(output, 16U);
+    WriteLe32(output, kData);
+    WriteLe32(output, data_size);
     if (!waveform.empty()) {
         output.write(reinterpret_cast<const char*>(waveform.samples().data()),
                      static_cast<std::streamsize>(data_size));
     }
     if (!output) {
-        throw std::runtime_error("Cannot write output WAV file: " + path);
+        throw WavFormatError("Cannot write output WAV file: " + path);
     }
 }

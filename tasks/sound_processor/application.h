@@ -9,7 +9,7 @@
 
 class Application {
 public:
-    int Start(int argc, char* argv[], std::ostream& out, std::ostream& err) const;
+    [[nodiscard]] int Start(int argc, char* argv[], std::ostream& out, std::ostream& err) const;
 
 private:
     static void PrintHelp(std::ostream& out);

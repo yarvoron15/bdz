@@ -15,7 +15,7 @@ public:
 
     CommandLineArgsToPipelineConverter();
 
-    Pipeline CreatePipeline(const std::vector<FilterDescriptor>& descriptors) const;
+    [[nodiscard]] Pipeline CreatePipeline(const std::vector<FilterDescriptor>& descriptors) const;
 
 private:
     std::map<std::string, Producer> producers_;

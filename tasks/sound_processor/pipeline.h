@@ -10,7 +10,7 @@ class Pipeline {
 public:
     void AddFilter(std::unique_ptr<IFilter> filter);
     void Apply(Waveform* waveform) const;
-    size_t Size() const;
+    [[nodiscard]] size_t Size() const;
 
 private:
     std::vector<std::unique_ptr<IFilter>> filters_;

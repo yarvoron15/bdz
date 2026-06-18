@@ -17,11 +17,11 @@ public:
         bad_args,
     };
 
-    Result Parse(int argc, char* argv[]);
+    [[nodiscard]] Result Parse(int argc, char* argv[]);
 
-    const std::string& InputPath() const;
-    const std::string& OutputPath() const;
-    const std::vector<FilterDescriptor>& Filters() const;
+    [[nodiscard]] const std::string& InputPath() const;
+    [[nodiscard]] const std::string& OutputPath() const;
+    [[nodiscard]] const std::vector<FilterDescriptor>& Filters() const;
 
 private:
     std::string input_path_;

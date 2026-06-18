@@ -1,10 +1,11 @@
 #include "filters.h"
 
+#include "errors.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <numeric>
-#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -18,7 +19,7 @@ size_t ToSamples(const std::string& unit, double value) {
     if (unit == "ms") {
         return Waveform::MillisecondsToSamples(value);
     }
-    throw std::runtime_error("Unknown time unit: " + unit);
+    throw FilterParseError("Unknown time unit: " + unit);
 }
 
 std::vector<int16_t> GenerateBuffer(size_t count) {
@@ -33,13 +34,13 @@ double Interpolate(int16_t left, int16_t right, double frac) {
 
 AmplFilter::AmplFilter(double factor) : factor_(factor) {
     if (factor < 0) {
-        throw std::runtime_error("Ampl factor must be non-negative.");
+        throw FilterParseError("Ampl factor must be non-negative.");
     }
 }
 
 void AmplFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("Ampl filter received null waveform.");
+        throw SoundProcessorError("Ampl filter received null waveform.");
     }
     for (int16_t& sample : waveform->samples()) {
         sample = Waveform::ClampSample(static_cast<double>(sample) * factor_);
@@ -48,13 +49,13 @@ void AmplFilter::Apply(Waveform* waveform) const {
 
 NormalizeFilter::NormalizeFilter(double peak) : peak_(peak) {
     if (peak < 0 || peak > 1) {
-        throw std::runtime_error("Normalize peak must be in [0, 1].");
+        throw FilterParseError("Normalize peak must be in [0, 1].");
     }
 }
 
 void NormalizeFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("Normalize filter received null waveform.");
+        throw SoundProcessorError("Normalize filter received null waveform.");
     }
     if (waveform->empty()) {
         return;
@@ -77,13 +78,13 @@ void NormalizeFilter::Apply(Waveform* waveform) const {
 SilenceFilter::SilenceFilter(std::string unit, double start, double end)
     : unit_(std::move(unit)), start_(start), end_(end) {
     if (start < 0 || end < start) {
-        throw std::runtime_error("Silence interval is invalid.");
+        throw FilterParseError("Silence interval is invalid.");
     }
 }
 
 void SilenceFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("Silence filter received null waveform.");
+        throw SoundProcessorError("Silence filter received null waveform.");
     }
     const size_t insert_at = std::min(ToSamples(unit_, start_), waveform->size());
     const size_t start_sample = ToSamples(unit_, start_);
@@ -95,13 +96,13 @@ void SilenceFilter::Apply(Waveform* waveform) const {
 
 TimeStretchFilter::TimeStretchFilter(double factor) : factor_(factor) {
     if (factor <= 0) {
-        throw std::runtime_error("Timestretch factor must be positive.");
+        throw FilterParseError("Timestretch factor must be positive.");
     }
 }
 
 void TimeStretchFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("Timestretch filter received null waveform.");
+        throw SoundProcessorError("Timestretch filter received null waveform.");
     }
     if (waveform->empty()) {
         return;
@@ -126,13 +127,13 @@ void TimeStretchFilter::Apply(Waveform* waveform) const {
 
 LowpassFilter::LowpassFilter(int window_size) : window_size_(window_size) {
     if (window_size < 1 || window_size % 2 == 0) {
-        throw std::runtime_error("Lowpass window size must be a positive odd integer.");
+        throw FilterParseError("Lowpass window size must be a positive odd integer.");
     }
 }
 
 void LowpassFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("Lowpass filter received null waveform.");
+        throw SoundProcessorError("Lowpass filter received null waveform.");
     }
     if (waveform->empty()) {
         return;
@@ -161,13 +162,13 @@ void LowpassFilter::Apply(Waveform* waveform) const {
 SinGeneratorFilter::SinGeneratorFilter(double frequency_hz, double duration_ms)
     : frequency_hz_(frequency_hz), duration_ms_(duration_ms) {
     if (frequency_hz < 0 || duration_ms < 0) {
-        throw std::runtime_error("Sin generator parameters must be non-negative.");
+        throw FilterParseError("Sin generator parameters must be non-negative.");
     }
 }
 
 void SinGeneratorFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("Sin generator received null waveform.");
+        throw SoundProcessorError("Sin generator received null waveform.");
     }
     const size_t count = Waveform::MillisecondsToSamples(duration_ms_);
     waveform->samples() = GenerateBuffer(count);
@@ -187,13 +188,13 @@ AmGeneratorFilter::AmGeneratorFilter(double amplitude, double carrier_hz, double
       duration_ms_(duration_ms) {
     if (amplitude < 0 || amplitude > 1 || carrier_hz < 0 || modulation_hz < 0 || depth < 0 ||
         depth > 1 || duration_ms < 0) {
-        throw std::runtime_error("AM generator parameters are invalid.");
+        throw FilterParseError("AM generator parameters are invalid.");
     }
 }
 
 void AmGeneratorFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("AM generator received null waveform.");
+        throw SoundProcessorError("AM generator received null waveform.");
     }
     const size_t count = Waveform::MillisecondsToSamples(duration_ms_);
     waveform->samples() = GenerateBuffer(count);
@@ -215,13 +216,13 @@ FmGeneratorFilter::FmGeneratorFilter(double amplitude, double carrier_hz, double
       duration_ms_(duration_ms) {
     if (amplitude < 0 || amplitude > 1 || carrier_hz < 0 || modulation_hz <= 0 || deviation_hz < 0 ||
         duration_ms < 0) {
-        throw std::runtime_error("FM generator parameters are invalid.");
+        throw FilterParseError("FM generator parameters are invalid.");
     }
 }
 
 void FmGeneratorFilter::Apply(Waveform* waveform) const {
     if (waveform == nullptr) {
-        throw std::runtime_error("FM generator received null waveform.");
+        throw SoundProcessorError("FM generator received null waveform.");
     }
     const size_t count = Waveform::MillisecondsToSamples(duration_ms_);
     waveform->samples() = GenerateBuffer(count);

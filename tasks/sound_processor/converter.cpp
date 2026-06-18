@@ -1,7 +1,8 @@
 #include "converter.h"
 
+#include "errors.h"
+
 #include <memory>
-#include <stdexcept>
 
 namespace {
 
@@ -9,7 +10,7 @@ double ParseDouble(const std::string& value, const std::string& field_name) {
     size_t pos = 0;
     const double parsed = std::stod(value, &pos);
     if (pos != value.size()) {
-        throw std::runtime_error("Invalid numeric value for " + field_name + ": " + value);
+        throw FilterParseError("Invalid numeric value for " + field_name + ": " + value);
     }
     return parsed;
 }
@@ -18,14 +19,14 @@ int ParseInt(const std::string& value, const std::string& field_name) {
     size_t pos = 0;
     const int parsed = std::stoi(value, &pos);
     if (pos != value.size()) {
-        throw std::runtime_error("Invalid integer value for " + field_name + ": " + value);
+        throw FilterParseError("Invalid integer value for " + field_name + ": " + value);
     }
     return parsed;
 }
 
 void EnsureParamsCount(const FilterDescriptor& descriptor, size_t expected) {
     if (descriptor.params.size() != expected) {
-        throw std::runtime_error("Wrong number of parameters for filter: " + descriptor.name);
+        throw FilterParseError("Wrong number of parameters for filter: " + descriptor.name);
     }
 }
 
@@ -59,12 +60,12 @@ CommandLineArgsToPipelineConverter::CommandLineArgsToPipelineConverter() {
     };
     producers_["generator"] = [](const FilterDescriptor& descriptor) -> std::unique_ptr<IFilter> {
         if (descriptor.params.empty()) {
-            throw std::runtime_error("Generator kind is required.");
+            throw FilterParseError("Generator kind is required.");
         }
         const std::string& kind = descriptor.params[0];
         if (kind == "sin") {
             if (descriptor.params.size() != 3) {
-                throw std::runtime_error("Generator sin expects 2 parameters.");
+                throw FilterParseError("Generator sin expects 2 parameters.");
             }
             return std::make_unique<SinGeneratorFilter>(
                 ParseDouble(descriptor.params[1], "frequency_hz"),
@@ -72,7 +73,7 @@ CommandLineArgsToPipelineConverter::CommandLineArgsToPipelineConverter() {
         }
         if (kind == "am") {
             if (descriptor.params.size() != 6) {
-                throw std::runtime_error("Generator am expects 5 parameters.");
+                throw FilterParseError("Generator am expects 5 parameters.");
             }
             return std::make_unique<AmGeneratorFilter>(
                 ParseDouble(descriptor.params[1], "amplitude"),
@@ -83,7 +84,7 @@ CommandLineArgsToPipelineConverter::CommandLineArgsToPipelineConverter() {
         }
         if (kind == "fm") {
             if (descriptor.params.size() != 6) {
-                throw std::runtime_error("Generator fm expects 5 parameters.");
+                throw FilterParseError("Generator fm expects 5 parameters.");
             }
             return std::make_unique<FmGeneratorFilter>(
                 ParseDouble(descriptor.params[1], "amplitude"),
@@ -92,7 +93,7 @@ CommandLineArgsToPipelineConverter::CommandLineArgsToPipelineConverter() {
                 ParseDouble(descriptor.params[4], "deviation_hz"),
                 ParseDouble(descriptor.params[5], "duration_ms"));
         }
-        throw std::runtime_error("Unknown generator kind: " + kind);
+        throw FilterParseError("Unknown generator kind: " + kind);
     };
 }
 
@@ -101,7 +102,7 @@ Pipeline CommandLineArgsToPipelineConverter::CreatePipeline(const std::vector<Fi
     for (const auto& descriptor : descriptors) {
         auto it = producers_.find(descriptor.name);
         if (it == producers_.end()) {
-            throw std::runtime_error("Unknown filter: " + descriptor.name);
+            throw FilterParseError("Unknown filter: " + descriptor.name);
         }
         pipeline.AddFilter(it->second(descriptor));
     }

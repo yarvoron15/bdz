@@ -8,7 +8,7 @@
 
 class WavReader {
 public:
-    Waveform Read(const std::string& path) const;
+    [[nodiscard]] Waveform Read(const std::string& path) const;
 };
 
 class WavWriter {

@@ -14,16 +14,16 @@ public:
     Waveform() = default;
     explicit Waveform(std::vector<int16_t> samples);
 
-    std::vector<int16_t>& samples();
-    const std::vector<int16_t>& samples() const;
+    [[nodiscard]] std::vector<int16_t>& samples();
+    [[nodiscard]] const std::vector<int16_t>& samples() const;
 
-    size_t size() const;
-    bool empty() const;
+    [[nodiscard]] size_t size() const;
+    [[nodiscard]] bool empty() const;
     void clear();
 
-    static size_t MillisecondsToSamples(double milliseconds);
-    static size_t SecondsToSamples(double seconds);
-    static int16_t ClampSample(double value);
+    [[nodiscard]] static size_t MillisecondsToSamples(double milliseconds);
+    [[nodiscard]] static size_t SecondsToSamples(double seconds);
+    [[nodiscard]] static int16_t ClampSample(double value);
 
 private:
     std::vector<int16_t> samples_;
