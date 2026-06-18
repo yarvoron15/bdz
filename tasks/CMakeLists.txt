@@ -34,3 +34,6 @@ add_subdirectory(stack)
 add_subdirectory(rational)
 add_subdirectory(queue)
 add_subdirectory(lru_cache)
+
+# Project
+add_subdirectory(sound_processor)
